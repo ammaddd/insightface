@@ -11,7 +11,8 @@ from partial_fc import PartialFC
 
 
 class CallBackVerification(object):
-    def __init__(self, frequent, rank, val_targets, rec_prefix, image_size=(112, 112)):
+    def __init__(self, frequent, rank, val_targets, rec_prefix, image_size=(112, 112),
+                 comet_logger=None):
         self.frequent: int = frequent
         self.rank: int = rank
         self.highest_acc: float = 0.0
@@ -20,6 +21,7 @@ class CallBackVerification(object):
         self.ver_name_list: List[str] = []
         if self.rank is 0:
             self.init_dataset(val_targets=val_targets, data_dir=rec_prefix, image_size=image_size)
+        self._comet_logger = comet_logger
 
     def ver_test(self, backbone: torch.nn.Module, global_step: int):
         results = []
@@ -28,6 +30,8 @@ class CallBackVerification(object):
                 self.ver_list[i], backbone, 10, 10)
             logging.info('[%s][%d]XNorm: %f' % (self.ver_name_list[i], global_step, xnorm))
             logging.info('[%s][%d]Accuracy-Flip: %1.5f+-%1.5f' % (self.ver_name_list[i], global_step, acc2, std2))
+            self._comet_logger.log_metric(acc2, "{}_Accuracy-Flip".format(self.ver_name_list[i]),
+                                          step=global_step)
             if acc2 > self.highest_acc_list[i]:
                 self.highest_acc_list[i] = acc2
             logging.info(
@@ -50,7 +54,8 @@ class CallBackVerification(object):
 
 
 class CallBackLogging(object):
-    def __init__(self, frequent, rank, total_step, batch_size, world_size, writer=None):
+    def __init__(self, frequent, rank, total_step, batch_size, world_size, writer=None,
+                 experiment=None):
         self.frequent: int = frequent
         self.rank: int = rank
         self.time_start = time.time()
@@ -58,6 +63,7 @@ class CallBackLogging(object):
         self.batch_size: int = batch_size
         self.world_size: int = world_size
         self.writer = writer
+        self._experiment = experiment
 
         self.init = False
         self.tic = 0
@@ -77,6 +83,10 @@ class CallBackLogging(object):
                 if self.writer is not None:
                     self.writer.add_scalar('time_for_end', time_for_end, global_step)
                     self.writer.add_scalar('loss', loss.avg, global_step)
+                    
+                self._experiment.log_metric("train_loss", loss.avg,
+                                            step=global_step,
+                                            epoch=epoch)
                 if fp16:
                     msg = "Speed %.2f samples/sec   Loss %.4f   Epoch: %d   Global Step: %d   "\
                           "Fp16 Grad Scale: %2.f   Required: %1.f hours" % (
@@ -95,12 +105,14 @@ class CallBackLogging(object):
 
 
 class CallBackModelCheckpoint(object):
-    def __init__(self, rank, output="./"):
+    def __init__(self, rank, output="./", experiment=None):
         self.rank: int = rank
         self.output: str = output
+        self._experiment = experiment
 
     def __call__(self, global_step, backbone: torch.nn.Module, partial_fc: PartialFC = None):
         if global_step > 100 and self.rank is 0:
             torch.save(backbone.module.state_dict(), os.path.join(self.output, "backbone.pth"))
+            self._experiment.log_model("arcface", os.path.join(self.output, "backbone.pth"))
         if global_step > 100 and partial_fc is not None:
             partial_fc.save_params()
