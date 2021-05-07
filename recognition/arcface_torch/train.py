@@ -3,7 +3,7 @@ import logging
 import os
 import time
 
-from comet_ml import Experiment
+from utils.comet_utils import CometLogger
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
@@ -23,11 +23,11 @@ torch.backends.cudnn.benchmark = True
 
 
 def main(args):
-    experiment = Experiment(auto_metric_logging=False)
-    experiment.log_others(vars(args))
-    experiment.log_code("config.py")
-    experiment.log_code("dataset.py")
-    experiment.log_code("losses.py")
+    comet_logger = CometLogger(args.comet, auto_metric_logging=False)
+    comet_logger.log_others(vars(args))
+    comet_logger.log_code("config.py")
+    comet_logger.log_code("dataset.py")
+    comet_logger.log_code("losses.py")
 
     world_size = int(os.environ['WORLD_SIZE'])
     rank = int(os.environ['RANK'])
@@ -93,11 +93,11 @@ def main(args):
     if rank is 0: logging.info("Total Step is: %d" % total_step)
 
     callback_verification = CallBackVerification(2000, rank, cfg.val_targets, cfg.rec,
-                                                 experiment=experiment)
+                                                 comet_logger=comet_logger)
     callback_logging = CallBackLogging(50, rank, total_step, cfg.batch_size, world_size, None,
-                                       experiment=experiment)
+                                       comet_logger=comet_logger)
     callback_checkpoint = CallBackModelCheckpoint(rank, cfg.output,
-                                                  experiment=experiment)
+                                                  comet_logger=comet_logger)
 
     loss = AverageMeter()
     global_step = 0
@@ -108,13 +108,13 @@ def main(args):
             global_step += 1
             features = F.normalize(backbone(img))
             if step % 200 == 0:
-                experiment.log_image(img[0].detach().cpu().numpy(),
+                comet_logger.log_image(img[0].detach().cpu().numpy(),
                                      name="train_images",
                                      image_channels="first",
                                      step=global_step)
             x_grad, loss_v = module_partial_fc.forward_backward(label, features, opt_pfc)
             if cfg.fp16:
-                experiment.add_tag("fp16")
+                comet_logger.add_tag("fp16")
                 features.backward(grad_scaler.scale(x_grad))
                 grad_scaler.unscale_(opt_backbone)
                 clip_grad_norm_(backbone.parameters(), max_norm=5, norm_type=2)
@@ -144,5 +144,6 @@ if __name__ == "__main__":
     parser.add_argument('--network', type=str, default='iresnet50', help='backbone network')
     parser.add_argument('--loss', type=str, default='ArcFace', help='loss function')
     parser.add_argument('--resume', type=int, default=0, help='model resuming')
+    parser.add_argument('--comet', type=bool, default=False, help='comet logging')
     args_ = parser.parse_args()
     main(args_)

@@ -12,7 +12,7 @@ from partial_fc import PartialFC
 
 class CallBackVerification(object):
     def __init__(self, frequent, rank, val_targets, rec_prefix, image_size=(112, 112),
-                 experiment=None):
+                 comet_logger=None):
         self.frequent: int = frequent
         self.rank: int = rank
         self.highest_acc: float = 0.0
@@ -21,7 +21,7 @@ class CallBackVerification(object):
         self.ver_name_list: List[str] = []
         if self.rank is 0:
             self.init_dataset(val_targets=val_targets, data_dir=rec_prefix, image_size=image_size)
-        self._experiment = experiment
+        self._comet_logger = comet_logger
 
     def ver_test(self, backbone: torch.nn.Module, global_step: int):
         results = []
@@ -30,8 +30,8 @@ class CallBackVerification(object):
                 self.ver_list[i], backbone, 10, 10)
             logging.info('[%s][%d]XNorm: %f' % (self.ver_name_list[i], global_step, xnorm))
             logging.info('[%s][%d]Accuracy-Flip: %1.5f+-%1.5f' % (self.ver_name_list[i], global_step, acc2, std2))
-            self._experiment.log_metric(acc2, "{}_Accuracy-Flip".format(self.ver_name_list[i]),
-                                        step=global_step)
+            self._comet_logger.log_metric(acc2, "{}_Accuracy-Flip".format(self.ver_name_list[i]),
+                                          step=global_step)
             if acc2 > self.highest_acc_list[i]:
                 self.highest_acc_list[i] = acc2
             logging.info(
